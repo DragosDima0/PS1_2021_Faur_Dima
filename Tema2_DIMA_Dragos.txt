@@ -1,0 +1,92 @@
+#include <string.h> 
+#include <math.h>
+#include <LiquidCrystal.h>
+const int rs = 8, en = 9, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+unsigned long int nr_CAN;
+int temp;
+int s=0,o=18,m=32;
+char c[24]="Temp este: ";
+
+void setup()
+{
+  lcd.begin(16,2);
+  DDRB|=0x20;
+  DDRD|=0xFF;
+  DDRC&=~0x01;
+  adc_init();
+  TCCR1A=0; //Mod CTC
+  TCCR1B=0x0D; //Prescaler 1024
+  OCR1A=15625;
+  TIMSK1=0x02;
+}
+
+void loop()
+{
+  OCR2A=156;
+  temperatura();
+  lcd.setCursor(0,0);
+  lcd.print(c);
+  lcd.print(temp);
+  lcd.setCursor(0, 1);
+  timp();
+  lcd.print("Ora: ");
+  lcd.print(o);
+  lcd.print(':');
+  lcd.print(m);
+  lcd.print(':');
+  lcd.print(s);
+  lcd.setCursor(0, 0);
+  delay(1000);
+  lcd.clear();
+}
+
+void timp()
+{
+  if(s>59){
+    s=0;
+    m++;
+  }
+  if(m>59){
+    o++;
+    m=0;
+  }
+}
+
+void temperatura()
+{
+  nr_CAN=read_adc(0);
+  temp=nr_CAN*5000/1023;
+  temp=(temp-500)/10;
+  if(temp > 35){
+    PORTB|=0x20; 
+  }
+  else if(temp < 35){
+    PORTB&=~0x20;
+  }
+}
+
+
+
+ISR(TIMER1_COMPA_vect)
+{
+  s++;
+}
+
+void adc_init() 
+{
+  ADCSRA |= ((1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0));
+  ADMUX |= (1<<REFS0);
+  ADCSRA |= (1<<ADEN);
+  ADCSRA |= (1<<ADSC);
+}
+
+uint16_t read_adc(uint8_t channel)
+{
+  ADMUX &= 0xF0;
+  ADMUX |= channel;
+  ADCSRA |= (1<<ADSC);
+  while(ADCSRA & (1<<ADSC));
+  return ADCW;
+}
+
