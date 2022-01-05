@@ -1,0 +1,494 @@
+#include <LiquidCrystal.h>
+
+#define BUTTON_OK 6
+#define BUTTON_CANCEL 7
+#define BUTTON_PREV 8
+#define BUTTON_NEXT 9
+#define ROOM_TEMP 21
+enum Buttons {
+  EV_OK,
+  EV_CANCEL,
+  EV_NEXT,
+  EV_PREV,
+  EV_NONE,
+  EV_MAX_NUM
+};
+
+enum Menus {
+  MENU_MAIN = 0,
+  MENU_KP,
+  MENU_KI,
+  MENU_KD,
+  MENU_TEMP,
+  MENU_TIME_M,
+  MENU_TIME_I,
+  MENU_TIME_R,
+  MENU_START,
+  MENU_MAX_NUM
+};
+
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+double temp = 34;
+double kp = 9;
+double ki = 0.01;
+double kd = 0.1;
+double eroare= 0;
+double suma_erori= 0;
+double eroare_anterioara = 0;
+double derivativa = 0;
+double dt=1; // timp esantionare
+double output;
+
+
+int minut_i=0;
+int minut_r=0;
+int minut_m=0;
+int time_i=20;
+int time_r=30;
+int time_m=25;
+int inc_time=minut_i*60+time_i;
+int men_time=minut_m*60+time_m;
+int rac_time=minut_r*60+time_r;
+int total_seconds=0;
+int moving_sp;
+
+
+unsigned long int nr_CAN;
+bool going=true;
+
+
+Menus scroll_menu = MENU_MAIN;
+Menus current_menu =  MENU_MAIN;
+
+void state_machine(enum Menus menu, enum Buttons button);
+Buttons GetButtons(void);
+void print_menu(enum Menus menu);
+
+typedef void (state_machine_handler_t)(void);
+
+void print_menu(enum Menus menu)
+{
+  lcd.clear();
+  switch(menu)
+  {
+    case MENU_KP:
+    	lcd.print("KP = ");
+    	lcd.print(kp);
+    	break;
+    case MENU_KI:
+    	lcd.print("KI = ");
+    	lcd.print(ki);
+    	break;
+    case MENU_KD:
+    	lcd.print("KD = ");
+    	lcd.print(kd);
+    	break;
+    case MENU_TEMP:
+    	lcd.print("TEMP = ");
+    	lcd.print(temp);
+    	break;
+    case MENU_TIME_M:
+    	lcd.print("TIME M= ");
+    	lcd.print(minut_m);
+    	lcd.print(":");
+    	lcd.print(time_m);
+    	break;
+    case MENU_TIME_I:
+    	lcd.print("TIME I= ");
+    	lcd.print(minut_i);
+    	lcd.print(":");
+    	lcd.print(time_i);
+    	break;
+    case MENU_TIME_R:
+    	lcd.print("TIME R= ");
+    	lcd.print(minut_r);
+    	lcd.print(":");
+    	lcd.print(time_r);
+    	break;
+    case MENU_START:
+    	lcd.print("START PROGRAM");
+    	break;
+    case MENU_MAIN:
+    	lcd.print("Temperatura: ");
+    	lcd.print(temperatura());
+    	break;
+    default:
+    	lcd.print("PS 2021");
+    	lcd.setCursor(0,1);
+    	lcd.print(temperatura());
+   		break;
+  }
+  
+  if(current_menu != MENU_MAIN&&current_menu!=MENU_START)
+  {
+  	lcd.setCursor(0,1);
+  	lcd.print("modifica");
+  }
+  else if(current_menu != MENU_MAIN&&current_menu==MENU_START){
+  	lcd.setCursor(0,1);
+  	lcd.print("Pornire?");
+  }
+}
+
+
+
+void enter_menu(void)
+{
+  current_menu = scroll_menu;
+}
+
+void go_home(void)
+{
+  scroll_menu = MENU_MAIN;
+  current_menu = scroll_menu;
+}
+
+void go_next(void)
+{
+  scroll_menu = (Menus) ((int)scroll_menu + 1);
+  scroll_menu = (Menus) ((int)scroll_menu % MENU_MAX_NUM);
+}
+
+void go_prev(void)
+{
+  scroll_menu = (Menus) ((int)scroll_menu - 1);
+  scroll_menu = (Menus) ((int)scroll_menu % MENU_MAX_NUM);
+}
+
+
+
+void save_kp(void)
+{
+}
+
+void inc_kp(void)
+{
+  kp++;
+}
+
+void dec_kp(void)
+{
+  kp--;
+}
+
+void save_ki(void)
+{
+}
+
+void inc_ki(void)
+{
+  ki++;
+}
+
+void dec_ki(void)
+{
+  ki--;
+}
+
+void save_kd(void)
+{
+}
+
+void inc_kd(void)
+{
+  kd++;
+}
+
+void dec_kd(void)
+{
+  kd--;
+}
+
+void save_temp(void)
+{
+}
+
+void inc_temp(void)
+{
+  temp++;
+}
+
+void dec_temp(void)
+{
+  temp--;
+}
+
+void save_time_m(void)
+{
+}
+
+void inc_time_m(void)
+{
+  time_m += 10;
+  if(time_m == 60){
+    time_m = 0;
+    minut_m += 1;
+  }
+  men_time=minut_m*60+time_m;
+}
+
+void dec_time_m(void)
+{
+  time_m -= 10;
+  if(time_m < 0){
+    minut_m -= 1;
+    time_m = 50;
+  }
+  men_time=minut_m*60+time_m;
+}
+
+void save_time_i(void)
+{
+}
+
+void inc_time_i(void)
+{
+  time_i += 10;
+  if(time_i == 60){
+    time_i = 0;
+    minut_i += 1;
+  }
+  inc_time=minut_i*60+time_i;
+}
+
+void dec_time_i(void)
+{
+  time_i -= 10;
+  if(time_i < 0){
+    minut_i -= 1;
+    time_i = 50;
+  }
+  inc_time=minut_i*60+time_i;
+}
+
+void save_time_r(void)
+{
+}
+
+void inc_time_r(void)
+{
+  time_r += 10;
+  if(time_r == 60){
+    time_r = 0;
+    minut_r += 1;
+  }
+  rac_time=minut_r*60+time_r;
+}
+
+void dec_time_r(void)
+{
+  time_r -= 10;
+  if(time_r < 0){
+    minut_r -= 1;
+    time_r = 50;
+  }
+  rac_time=minut_r*60+time_r;
+}
+
+
+
+void PID()
+{
+  eroare = temp - moving_sp;
+  suma_erori= suma_erori + eroare * dt;
+  derivativa = (eroare - eroare_anterioara) / dt;
+  output =(int)((kp * eroare) + (ki * suma_erori ) + (kd * derivativa));
+  eroare_anterioara = eroare;
+  
+  
+  if(output>255)
+    output=255;
+  if(output<0)
+    output=0;
+  
+  
+  analogWrite(10,output);
+}
+
+void PIDr()
+{
+  eroare = moving_sp-temp;
+  suma_erori= suma_erori + eroare * dt;
+  derivativa = (eroare - eroare_anterioara) / dt;
+  output =(int)((kp * eroare) + (ki * suma_erori ) + (kd * derivativa));
+  eroare_anterioara = eroare;
+  
+  
+  if(output>255)
+    output=255;
+  if(output<0)
+    output=0;
+  
+  
+  analogWrite(10,output);
+}
+
+
+
+void start_function(void){
+  
+  int min=0;
+  int sec=0;
+  int remaining=0;
+  total_seconds++;
+  
+  if(total_seconds<=inc_time){
+    lcd.print("Incalzire: ");
+    lcd.print(inc_time-total_seconds);
+    moving_sp=ROOM_TEMP+(temp-ROOM_TEMP)*total_seconds/inc_time;
+    PID();
+    lcd.setCursor(0,1);
+    lcd.print("SP:");
+    lcd.print((int)temp);
+    lcd.print(" Temp:");
+    lcd.print(moving_sp);
+    
+    
+  }
+  
+  else if(total_seconds <=(inc_time + men_time)){
+    lcd.print("Mentinere: ");
+    lcd.print(men_time-total_seconds+inc_time);
+    moving_sp=temp;
+    PID();
+    lcd.setCursor(0,1);
+    lcd.print("SP:");
+    lcd.print((int)temp);
+    lcd.print(" Temp:");
+    lcd.print(moving_sp);
+  }
+  
+  else if(total_seconds<=(inc_time+men_time+rac_time)){
+    lcd.print("Racire: ");
+    lcd.print(rac_time-total_seconds+inc_time+men_time);
+    lcd.setCursor(0,1);
+    moving_sp=ROOM_TEMP + temp-temp*total_seconds/(inc_time+men_time+rac_time);
+    PIDr();
+    lcd.print("SP:");
+    lcd.print(ROOM_TEMP);
+    lcd.print(" Temp:");
+    lcd.print(moving_sp);
+  }
+  
+  else{
+    lcd.print("Oprit");
+    lcd.setCursor(0,1);
+    lcd.print("Inchidere in:");
+    int left=total_seconds-inc_time-men_time-rac_time;
+    if(left<=11){
+      int left1=11-left;
+      lcd.print(left1);
+    }
+    else{
+      going=false;
+    }
+  }
+}
+
+void start(){
+  while(going == true){
+  lcd.clear();
+  start_function();
+  delay(1000);
+  }
+}
+
+
+
+state_machine_handler_t* sm[MENU_MAX_NUM][EV_MAX_NUM] = 
+{ //events: OK , CANCEL , NEXT, PREV
+  {enter_menu, go_home, go_next, go_prev},  	// MENU_MAIN
+  {go_home, go_home, inc_kp, dec_kp},       	// MENU_KP
+  {go_home, go_home, inc_ki, dec_ki},       	// MENU_KI
+  {go_home, go_home, inc_kd, dec_kd},       	// MENU_KD
+  {go_home, go_home, inc_temp, dec_temp},   	// MENU_TEMP
+  {go_home, go_home, inc_time_m, dec_time_m},   // MENU_TIME_MENTINERE
+  {go_home, go_home, inc_time_i, dec_time_i},   // MENU_TIME_INCALZIRE
+  {go_home, go_home, inc_time_r, dec_time_r},   // MENU_TIME_RACIRE
+  {start, go_home, go_home, go_home},			// MENU_START
+};
+
+void state_machine(enum Menus menu, enum Buttons button)
+{
+  sm[menu][button]();
+}
+
+Buttons GetButtons(void)
+{
+  enum Buttons ret_val = EV_NONE;
+  if (digitalRead(BUTTON_OK))
+  {
+    ret_val = EV_OK;
+  }
+  else if (digitalRead(BUTTON_CANCEL))
+  {
+    ret_val = EV_CANCEL;
+  }
+  else if (digitalRead(BUTTON_NEXT))
+  {
+    ret_val = EV_NEXT;
+  }
+  else if (digitalRead(BUTTON_PREV))
+  {
+    ret_val = EV_PREV;
+  }
+  
+  return ret_val;
+}
+
+
+int temperatura()
+{
+  int temperature;
+  nr_CAN=read_adc(0);
+  temperature=nr_CAN*5000/1023;
+  temperature=(temperature-500)/10;
+  return temperature;
+}
+
+void adc_init() 
+{
+  ADCSRA |= ((1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0));
+  ADMUX |= (1<<REFS0);
+  ADCSRA |= (1<<ADEN);
+  ADCSRA |= (1<<ADSC);
+}
+
+uint16_t read_adc(uint8_t channel)
+{
+  ADMUX &= 0xF0;
+  ADMUX |= channel;
+  ADCSRA |= (1<<ADSC);
+  while(ADCSRA & (1<<ADSC));
+  return ADCW;
+}
+
+void setup()
+{
+  Serial.begin(9600);
+  lcd.begin(16,2);
+  pinMode(10,OUTPUT);
+  pinMode(6, INPUT);
+  digitalWrite(6, LOW); // pull-down
+  pinMode(7, INPUT);
+  digitalWrite(7, LOW); // pull-down
+  pinMode(8, INPUT);
+  digitalWrite(8, LOW); // pull-down
+  pinMode(9, INPUT);
+  digitalWrite(9, LOW); // pull-down
+  DDRC&=~0x01;
+  adc_init();
+}
+
+
+
+void loop()
+{
+  volatile Buttons event = GetButtons();
+  if (event != EV_NONE)
+  {
+    state_machine(current_menu, event);
+  }
+    print_menu(scroll_menu);
+    delay(1000);
+}
